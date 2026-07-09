@@ -110,27 +110,44 @@
                 <div class="stat-label">VO2 Max</div>
               </div>
             </div>
-            <!-- Sleep Stages -->
-            <div v-if="dailySummary.sleepStages.length" class="pulso-stats__group">
-              <div class="pulso-stats__group-title">Sleep Stages</div>
-              <div class="pulso-stats__grid pulso-stats__grid--small">
-                <div v-for="(st, i) in sleepStageSummary" :key="i" class="summary-stat summary-stat--small">
-                  <div class="stat-value">{{ Math.round(st.minutes) }}m</div>
-                  <div class="stat-label">{{ st.label }}</div>
-                </div>
-              </div>
-            </div>
-            <!-- Heart Rate Zones -->
-            <div v-if="dailySummary.heartRateZones.length" class="pulso-stats__group">
-              <div class="pulso-stats__group-title">Heart Rate Zones</div>
-              <div class="pulso-stats__grid pulso-stats__grid--small">
-                <div v-for="zone in dailySummary.heartRateZones.filter(z => z.minutes > 0)" :key="zone.name" class="summary-stat summary-stat--small">
-                  <div class="stat-value">{{ zone.minutes }}m</div>
-                  <div class="stat-label">{{ zone.name }}</div>
-                  <div class="stat-sublabel">{{ zone.min }}–{{ zone.max }} bpm</div>
-                </div>
-              </div>
-            </div>
+          </div>
+        </ion-card-content>
+      </ion-card>
+
+      <!-- Sleep: hypnogram + stage composition -->
+      <ion-card v-if="dailySummary && dailySummary.sleepStages.length" class="pulso-card">
+        <ion-card-header class="pulso-card__header">
+          <ion-card-title class="pulso-card__title">Sleep</ion-card-title>
+          <div class="pulso-card__date">{{ sleepRangeLabel }}</div>
+        </ion-card-header>
+        <ion-card-content class="pulso-card__content pulso-card__content--chart">
+          <SleepHypnogram
+            :stages="dailySummary.sleepStages"
+            :sleep-start="dailySummary.sleepStart"
+            :sleep-end="dailySummary.sleepEnd"
+          />
+        </ion-card-content>
+      </ion-card>
+
+      <!-- Heart rate: intraday line + time in zones -->
+      <ion-card v-if="dailySummary && (dailySummary.heartRateIntraday.length || dailySummary.heartRateZones.length)" class="pulso-card">
+        <ion-card-header class="pulso-card__header">
+          <ion-card-title class="pulso-card__title">Heart Rate</ion-card-title>
+          <div class="pulso-card__date">{{ formatTodayLabel(dailySummary.date) }}</div>
+        </ion-card-header>
+        <ion-card-content class="pulso-card__content pulso-card__content--chart">
+          <HeartRateChart
+            v-if="dailySummary.heartRateIntraday.length"
+            :samples="dailySummary.heartRateIntraday"
+            :resting-hr="dailySummary.restingHeartRate"
+          />
+          <div
+            v-if="dailySummary.heartRateZones.length"
+            class="pulso-stats__group"
+            :class="{ 'pulso-stats__group--flat': !dailySummary.heartRateIntraday.length }"
+          >
+            <div class="pulso-stats__group-title">Time in Zones</div>
+            <HeartRateZonesChart :zones="dailySummary.heartRateZones" />
           </div>
         </ion-card-content>
       </ion-card>
@@ -207,6 +224,9 @@ import {
 } from '@ionic/vue';
 import { HealthKit } from '@ionic-native/health-kit';
 import PulsoMark from '../components/PulsoMark.vue';
+import HeartRateChart from '../components/charts/HeartRateChart.vue';
+import SleepHypnogram from '../components/charts/SleepHypnogram.vue';
+import HeartRateZonesChart from '../components/charts/HeartRateZonesChart.vue';
 </script>
 
 <script lang="ts">
@@ -233,7 +253,7 @@ export default defineComponent({
     IonContent, IonHeader, IonPage, IonTitle, IonToolbar, IonItem, IonLabel,
     IonCardContent, IonCardHeader, IonCardTitle, IonCard, IonButton,
     IonToggle, IonSelect, IonSelectOption, IonGrid, IonRow, IonCol,
-    PulsoMark,
+    PulsoMark, HeartRateChart, SleepHypnogram, HeartRateZonesChart,
   },
   data() {
     return {
@@ -332,17 +352,12 @@ export default defineComponent({
     });
   },
   computed: {
-    sleepStageSummary(): { label: string; minutes: number }[] {
-      if (!this.dailySummary?.sleepStages.length) return [];
-      const totals: Record<string, number> = {};
-      for (const s of this.dailySummary.sleepStages) {
-        totals[s.stage] = (totals[s.stage] || 0) + s.seconds / 60;
-      }
-      const labels: Record<string, string> = { deep: 'Deep', light: 'Light', rem: 'REM', wake: 'Awake' };
-      return Object.entries(totals).map(([stage, minutes]) => ({
-        label: labels[stage] || stage,
-        minutes,
-      }));
+    sleepRangeLabel(): string {
+      const s = this.dailySummary?.sleepStart;
+      const e = this.dailySummary?.sleepEnd;
+      if (!s || !e) return '';
+      const fmt = (v: string) => new Date(v).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      return `${fmt(s)}-${fmt(e)}`;
     },
   },
   beforeUnmount() {
@@ -592,6 +607,44 @@ export default defineComponent({
     formatDateStr(d: Date): string {
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     },
+    // Deterministic synthetic HR curve: overnight low, morning rise, evening workout spike
+    demoHeartRate(): { time: string; value: number }[] {
+      const samples: { time: string; value: number }[] = [];
+      for (let m = 0; m <= 21 * 60; m += 3) {
+        const h = m / 60;
+        let v: number;
+        if (h < 7.3) v = 53 + 4 * Math.sin(m / 22) + 2 * Math.sin(m / 7);
+        else if (h < 9) v = 62 + (h - 7.3) * 7 + 3 * Math.sin(m / 9);
+        else if (h >= 17 && h < 17.65) v = 92 + 60 * Math.sin(Math.PI * Math.min(1, ((h - 17) / 0.65) * 1.15)) + 4 * Math.sin(m / 5);
+        else if (h >= 17.65 && h < 18.3) v = 98 - (h - 17.65) * 42 + 3 * Math.sin(m / 6);
+        else v = 72 + 6 * Math.sin(m / 30) + 3 * Math.sin(m / 11);
+        samples.push({
+          time: `${String(Math.floor(h)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}:00`,
+          value: Math.round(v),
+        });
+      }
+      return samples;
+    },
+    // Plausible night 23:42-07:18 (456m window, 412m asleep) as timed stage segments
+    demoSleepStages(): { stages: any[]; start: string; end: string } {
+      const pairs: [string, number][] = [
+        ['wake', 8], ['light', 30], ['deep', 42], ['light', 22], ['deep', 36],
+        ['light', 26], ['rem', 25], ['light', 16], ['wake', 12], ['light', 26],
+        ['deep', 28], ['light', 20], ['rem', 33], ['light', 14], ['wake', 10],
+        ['light', 28], ['rem', 30], ['light', 24], ['deep', 12], ['wake', 14],
+      ];
+      const start = new Date();
+      start.setDate(start.getDate() - 1);
+      start.setHours(23, 42, 0, 0);
+      let t = start.getTime();
+      const stages = pairs.map(([stage, min]) => {
+        const s = new Date(t);
+        const e = new Date(t + min * 60000);
+        t = e.getTime();
+        return { stage, startTime: s.toISOString(), endTime: e.toISOString(), seconds: min * 60 };
+      });
+      return { stages, start: stages[0].startTime, end: stages[stages.length - 1].endTime };
+    },
     loadDemoFixtures() {
       const today = this.formatDateStr(new Date());
       this.loggedIn = true;
@@ -599,7 +652,8 @@ export default defineComponent({
       this.lastSyncTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       this.autoSyncEnabled = true;
       this.syncIntervalMinutes = 15;
-      this.sleepError = '23:42–07:18 (asleep 412m, 38 stages): SAVED 38 stages (replaced 0)';
+      this.sleepError = '23:42-07:18 (asleep 412m, 20 stages): SAVED 20 stages (replaced 0)';
+      const demoSleep = this.demoSleepStages();
       this.dailySummary = {
         date: today,
         steps: 11248,
@@ -613,16 +667,11 @@ export default defineComponent({
           { name: 'Cardio', min: 136, max: 166, minutes: 38, caloriesOut: 192 },
           { name: 'Peak', min: 166, max: 220, minutes: 9, caloriesOut: 58 },
         ],
-        heartRateIntraday: [],
+        heartRateIntraday: this.demoHeartRate(),
         sleepMinutes: 412,
-        sleepStart: `${today}T23:42:00`,
-        sleepEnd: `${today}T07:18:00`,
-        sleepStages: [
-          { stage: 'deep', startTime: '', endTime: '', seconds: 78 * 60 },
-          { stage: 'light', startTime: '', endTime: '', seconds: 226 * 60 },
-          { stage: 'rem', startTime: '', endTime: '', seconds: 108 * 60 },
-          { stage: 'wake', startTime: '', endTime: '', seconds: 34 * 60 },
-        ],
+        sleepStart: demoSleep.start,
+        sleepEnd: demoSleep.end,
+        sleepStages: demoSleep.stages,
         sleepLogs: [],
         hrvDaily: 47,
         spo2: 96.4,
@@ -1212,8 +1261,9 @@ ion-content {
   text-align: center;
 }
 .pulso-banner__tools-actions {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: 6px;
 }
 .pulso-banner__tools-actions ion-button {
@@ -1266,6 +1316,9 @@ ion-content {
 }
 .pulso-card__content {
   padding: 8px 12px 14px;
+}
+.pulso-card__content--chart {
+  padding: 8px 16px 16px;
 }
 .pulso-card--summary {
   border-left: 3px solid var(--pulso-accent);
@@ -1345,6 +1398,11 @@ ion-content {
   margin-top: 10px;
   padding-top: 12px;
   border-top: 1px solid rgba(var(--ion-color-medium-rgb), 0.14);
+}
+.pulso-stats__group--flat {
+  margin-top: 0;
+  padding-top: 4px;
+  border-top: none;
 }
 .pulso-stats__group-title {
   font-family: var(--ion-font-family);

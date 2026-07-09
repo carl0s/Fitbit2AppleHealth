@@ -12,6 +12,18 @@
   --pulso-deep:   #011D22;
   --pulso-light:  #FCFCFC;
 
+  /* --- Dataviz tokens (CVD-validated against card surface #FFFFFF) ---
+     Sleep stages: categorical. HR zones: ordinal single-hue ramp, low -> peak. */
+  --pulso-viz-wake: #E8590C;
+  --pulso-viz-rem:  #0E9394;
+  --pulso-viz-sleep-light: #4C7FE0;
+  --pulso-viz-deep: #3740A8;
+  --pulso-viz-zone-1: #FF9450; /* Out of Range */
+  --pulso-viz-zone-2: #EE6A10; /* Fat Burn */
+  --pulso-viz-zone-3: #C24E06; /* Cardio */
+  --pulso-viz-zone-4: #8C3A05; /* Peak */
+  --pulso-viz-grid: rgba(1, 29, 34, 0.10);
+
   /* --- Light mode surfaces (default) --- */
   --ion-background-color: #FCFCFC;
   --ion-background-color-rgb: 252, 252, 252;
@@ -99,6 +111,17 @@
     --ion-background-color-rgb: 1, 29, 34;
     --ion-text-color: #FCFCFC;
     --ion-text-color-rgb: 252, 252, 252;
+
+    /* --- Dataviz tokens (CVD-validated against card surface #042B31) --- */
+    --pulso-viz-wake: #E8590C;
+    --pulso-viz-rem:  #12A5A6;
+    --pulso-viz-sleep-light: #5E93EC;
+    --pulso-viz-deep: #4A57C9;
+    --pulso-viz-zone-1: #AD4A06; /* Out of Range */
+    --pulso-viz-zone-2: #D3610A; /* Fat Burn */
+    --pulso-viz-zone-3: #F0791F; /* Cardio */
+    --pulso-viz-zone-4: #FFA45C; /* Peak */
+    --pulso-viz-grid: rgba(252, 252, 252, 0.12);
 
     --ion-color-primary: #FF4500;
     --ion-color-primary-rgb: 255, 69, 0;
